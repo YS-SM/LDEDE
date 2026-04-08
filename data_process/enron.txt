@@ -1,0 +1,2 @@
+ENRON：https://github.com/MWiechmann/enron_spam_data
+MIMIC: https://github.com/NUIST-NIM/MIMIC-NLP-Intro

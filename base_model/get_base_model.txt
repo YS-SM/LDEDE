@@ -1,0 +1,4 @@
+gpt2：https://huggingface.co/openai-community/gpt2
+gpt-neo:https://huggingface.co/EleutherAI/gpt-neo-2.7B/tree/main
+gpt2-xl:https://huggingface.co/openai-community/gpt2-xl
+llama-7b:https://huggingface.co/huggyllama/llama-7b/tree/main
