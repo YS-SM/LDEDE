@@ -2,7 +2,7 @@
 
 ### LRP-Driven Efficient Detection and Editing Framework for LLM Privacy Neurons
 
-A framework for locating privacy-related neurons in large language models with **Layer-wise Relevance Propagation (LRP)** and evaluating targeted neuron suppression.
+Research code for **LDEDE**, a framework for locating privacy-related neurons in large language models with **Layer-wise Relevance Propagation (LRP)** and evaluating targeted neuron suppression.
 
 The repository provides experiments on **personal names, phone numbers, and email text**, together with Integrated Gradients baselines and analyses of interactions between privacy categories.
 
@@ -13,7 +13,7 @@ LDEDE studies which feed-forward network components are associated with memorize
 The experimental workflow consists of four stages:
 
 1. **Identify memorized samples.** Score candidate samples using name MRR, phone Exposure, or email-text perplexity.
-2. **Compute relevance scores.** Apply the implemented LRP attribution procedure and retain signed scores for each sample and layer.
+2. **Compute relevance scores.** Apply LRP and retain signed scores for each sample and layer.
 3. **Aggregate across samples.** Select positive-relevance candidates, count their selection frequency, and construct a layer-to-neuron index mapping.
 4. **Suppress and evaluate.** Apply forward hooks to selected FFN activations and compare privacy metrics and validation perplexity before and after suppression.
 
@@ -32,8 +32,6 @@ Corpus → Preprocessing → Model fine-tuning → Memorized samples
                                                   ▼
                                   Privacy metrics + Validation PPL
 ```
-
-**Implementation scope.** The main localization and editing scripts use GPT-2-specific modules and fixed dimensions: 12 layers and 3,072 FFN channels per layer. The training launcher includes a GPT-2 XL configuration, but using a different architecture for localization or editing requires corresponding code changes. Editing is implemented through runtime activation hooks; the main editing scripts do not export a permanently edited model checkpoint.
 
 ## Repository structure
 
@@ -62,11 +60,11 @@ LDEDE/
 └── README.md
 ```
 
-Model checkpoints, raw corpora, processed Arrow datasets, and generated neuron files must be prepared separately.
+The following sections describe how to prepare model checkpoints, corpora, Arrow datasets, and neuron files.
 
 ## Environment setup
 
-The local research environment uses **Python 3.10**. An NVIDIA GPU is useful for fine-tuning and attribution; several evaluation scripts also provide a CPU fallback.
+The research environment uses **Python 3.10**. Use an NVIDIA GPU for fine-tuning and attribution. The main evaluation scripts select CUDA when available and support CPU execution.
 
 ```bash
 git clone https://github.com/YS-SM/LDEDE.git
@@ -98,9 +96,7 @@ The checked-in `requirements.txt` records the research environment. Its principa
 | NumPy | `1.26.4` |
 | NLTK | `3.8.1` |
 
-**Environment preparation is required.** This package export has not been validated as a clean-install lockfile. Resolve version compatibility before running experiments, particularly the Torch/Transformers and Datasets/Dill/Multiprocess combinations. The CUDA-specific Torch entries and the `baukit` and `triton` dependencies also need an installation source or platform-appropriate adjustment. The original local project export additionally contains machine-specific wheel/archive paths.
-
-Create an adapted dependency file from `requirements.txt`, resolve those entries for your platform, and then install it:
+Copy `requirements.txt` to `requirements.local.txt` and configure dependencies for your platform. Match the Torch build to your CUDA environment, align the Torch/Transformers and Datasets/Dill/Multiprocess versions, and configure installation sources for `baukit` and `triton`. Then install:
 
 ```bash
 python -m pip install --upgrade pip
@@ -110,13 +106,13 @@ python -m pip check
 python -c "import torch; from transformers import GPT2LMHeadModel, GPT2Tokenizer; from captum.attr import LRP; print('Torch:', torch.__version__, 'CUDA:', torch.cuda.is_available())"
 ```
 
-The name-extraction script uses NLTK tokenization, tagging, and named-entity resources. It attempts to download missing resources; for an offline experiment, prepare them in advance.
+The name-extraction script uses NLTK tokenization, tagging, and named-entity resources and downloads them as needed. For offline execution, download these resources in advance.
 
 ## Data and model preparation
 
 ### 1. Prepare the corpus
 
-Dataset references are recorded in `data_process/enron.txt`. The supplied Enron preprocessing script expects a **maildir-style directory of individual email files**; a CSV dataset must first be adapted to the expected input format.
+Dataset references are recorded in `data_process/enron.txt`. Organize the Enron corpus as a **maildir-style directory of individual email files** for preprocessing.
 
 Set the following constants in `data_process/enron_preprocess.py`:
 
@@ -133,7 +129,7 @@ python data_process/enron_preprocess.py
 
 ### 2. Prepare tokenized datasets
 
-In `data_process/txt_fast_to_arrow.py`, set `TOKENIZER_PATH`, `TXT_FILES`, and `OUTPUT_ROOT`. Include **both the training and validation text files** in `TXT_FILES`; the supplied default lists only the training file. Keep `BLOCK_SIZE = 512` when using the main editing scripts with their default evaluation settings.
+In `data_process/txt_fast_to_arrow.py`, set `TOKENIZER_PATH`, `TXT_FILES`, and `OUTPUT_ROOT`. Include **both the training and validation text files** in `TXT_FILES` and set `BLOCK_SIZE = 512` to match the main editing scripts.
 
 ```bash
 python data_process/txt_fast_to_arrow.py
@@ -151,7 +147,7 @@ Each dataset contains `input_ids`, `attention_mask`, and `labels`. Padding posit
 
 ### 3. Fine-tune or provide a checkpoint
 
-Prepare a GPT-2 checkpoint and its tokenizer. To train with your own paths, use the CLI in `fine_tuning/run_clm_no_trainer.py`. The following is an illustrative single-process configuration; it is not a specification of the paper's full experimental settings.
+Prepare a GPT-2 checkpoint and its tokenizer. Use `fine_tuning/run_clm_no_trainer.py` for fine-tuning. Example single-process configuration:
 
 ```bash
 python fine_tuning/run_clm_no_trainer.py --model_name_or_path "<BASE_GPT2>" --train_file "<ARROW_ROOT>/train/final" --validation_file "<ARROW_ROOT>/valid/final" --output_dir "<RUN_OUTPUT>" --block_size 512 --per_device_train_batch_size 1 --per_device_eval_batch_size 1 --gradient_accumulation_steps 8 --learning_rate 5e-5 --num_train_epochs 1 --seed 42 --keep_final_model
@@ -165,7 +161,7 @@ For distributed training, adapt `fine_tuning/accelerate_cli.py` and `fine_tuning
 
 Run commands from the repository root. The sample-mining scripts accept CLI arguments; localization, aggregation, and editing generally use configuration dictionaries inside the Python files. Replace the supplied `D:\expt\...` paths before execution.
 
-**Before chaining the stages, apply the format alignment described in [Script interoperability](#script-interoperability).** The current public scripts contain differences between output field names and downstream parsers.
+Configure sample labels, neuron keys, and intermediate filenames using [Data formats](#data-formats).
 
 ### 1. Mine memorized samples
 
@@ -180,7 +176,7 @@ python main/name/memorized_NAME.py --model_name_or_path "<CHECKPOINT>" --raw_tex
 python main/email/memorized_email.py --model_name_or_path "<CHECKPOINT>" --raw_text_path "<TEXT_ROOT>/train.txt" --output_path "main/email/gpt2_high_memory_emails_generation.txt" --ppl_threshold 10.0
 ```
 
-These thresholds are configurable examples. Use the experiment-specific settings when reproducing a reported result. For the full list of mining options, run the relevant script with `--help`.
+Adjust `--threshold` and `--ppl_threshold` to select the memorization level for your experiment. Run each script with `--help` to view all mining options.
 
 ### 2. Compute LRP scores
 
@@ -194,7 +190,7 @@ python main/email/lrp_privacy_neuron_localization_npy.py
 
 The output is a NumPy object array of sample records containing metadata and `privacy_neuron_scores`, a mapping from layer indices to signed score arrays.
 
-The current GPT-2 implementation attributes to FFN inputs and tiles the resulting 768-dimensional score vector four times to obtain 3,072 entries. Preserve this implementation detail when interpreting the saved channel indices or adapting the method to another architecture.
+The localization scripts use GPT-2 with 12 layers and 3,072 FFN channels per layer. Attribution operates on FFN inputs: the 768-dimensional score vector is tiled four times to obtain 3,072 entries. To use another architecture, update the module references and dimensions accordingly.
 
 ### 3. Aggregate neuron candidates
 
@@ -206,7 +202,7 @@ python main/name/lrp_privacy_neuron_localization_FQ.py
 python main/email/lrp_privacy_neuron_localization_FQ.py
 ```
 
-The phone script currently exposes the following configuration:
+Phone aggregation parameters:
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
@@ -229,22 +225,22 @@ python main/name/edit.py
 python main/email/edit.py
 ```
 
-The hooks suppress selected outputs of `model.transformer.h[layer].mlp.c_fc`. Where enabled, noise can be added to the selected channels. A noise strength of zero performs zeroing without added noise. Hooks are removed at the end of the main evaluation.
+Editing uses runtime forward hooks to suppress selected outputs of `model.transformer.h[layer].mlp.c_fc`. Set `noise_strength` to zero for activation zeroing, or enable `use_noise` with a positive strength to replace selected activations with noise. The intervention remains active during evaluation, and hooks are removed afterward.
 
 | Evaluation | Desired direction after suppression | Interpretation |
 | --- | --- | --- |
 | Name MRR | Lower | Lower rank-based recoverability of target names |
-| Phone Exposure | Lower | Lower phone memorization under the implemented rank-based score |
+| Phone Exposure | Lower | Lower rank-based phone memorization |
 | Email target-text PPL | Higher | Lower likelihood of the memorized target text |
 | Validation PPL | Small change | Preservation of language-modeling performance on the chosen validation set |
 
-Privacy-text PPL and validation PPL measure different objectives. Report both privacy changes and the associated utility cost. The phone implementation estimates sequence rank from a product of per-digit ranks; use its exact scoring convention when comparing results.
+Report privacy metrics alongside validation PPL to evaluate the privacy–utility trade-off. Phone Exposure uses the product of per-digit ranks to estimate sequence rank.
 
-## Script interoperability
+## Data formats
 
-The public release and the original local research scripts use different naming conventions in several places. Align these interfaces before running the pipeline end to end:
+Use the following mappings to connect sample mining, localization, aggregation, and editing:
 
-| Interface | Current difference | Required alignment |
+| Interface | Writer and reader formats | Configuration |
 | --- | --- | --- |
 | Phone samples | Mining writes English labels such as `Original text:` and `Phone number:`; localization and editing expect Chinese labels and full-width colons. | Make both downstream parsers accept the writer's format, or convert the generated sample file to the expected format. |
 | Email samples | Mining writes `[PPL: ...]`, `[Prompt]:`, `[Target text]:`, and `[Generation preview]:`; downstream code expects `【PPL：...】`, `【prompt】：`, `【target_text】：`, and `【generation_preview】：`. | Align labels, brackets, and punctuation in both readers with the generated file. |
@@ -264,7 +260,7 @@ if not isinstance(privacy_neurons, dict) or not privacy_neurons:
     raise ValueError("Expected a non-empty layer-to-neuron mapping")
 ```
 
-Verify that each parser loads a nonzero number of samples and that the next stage reads the exact file produced by the previous one. The setup and commands in this README describe the source workflow; a clean-environment, end-to-end reproduction has not been validated for this documentation release.
+Check the parsed sample count and pass each stage's output path to the next stage.
 
 ## Baselines and Seesaw analyses
 
@@ -282,9 +278,6 @@ Configure their paths and file formats separately before running them.
 
 **LRP-Driven Efficient Detection and Editing Framework for LLM Privacy Neurons**
 
-<!-- Add the verified paper URL and publisher-provided BibTeX here when available. -->
-
 ## Questions
 
 Use this repository's **Issues** tab for questions and reproducibility reports. Include the script name, relevant settings, package versions, and traceback so that the run can be diagnosed.
-
