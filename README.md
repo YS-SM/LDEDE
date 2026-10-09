@@ -1,8 +1,7 @@
 # LDEDE
 
 ### LRP-Driven Efficient Detection and Editing Framework for LLM Privacy Neurons
-
-Research code for **LDEDE**, a framework for locating privacy-related neurons in large language models with **Layer-wise Relevance Propagation (LRP)** and evaluating targeted neuron suppression.
+A framework for locating privacy-related neurons in large language models with **Layer-wise Relevance Propagation (LRP)** and evaluating targeted neuron suppression.
 
 The repository provides experiments on **personal names, phone numbers, and email text**, together with Integrated Gradients baselines and analyses of interactions between privacy categories.
 
